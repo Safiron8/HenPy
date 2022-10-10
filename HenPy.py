@@ -7,9 +7,15 @@ from io import BytesIO
 from PIL import Image
 from DifPy import dif
 
+# Declarations ---------------------------------------------------
+IMAGES = []
+watch_start = datetime.now()
+RUNNING_DIR = str(Path(__file__).parent.resolve())
+# Declarations ---------------------------------------------------
+
 # Settings -------------------------------------------------------
-DEBUG = False # whether you should see more info than you would normally need
-BASE_DIR = Path('D:\\HenPy\\Images\\Base') # dir where images are located
+DEBUG = True # whether you should see more info than you would normally need
+BASE_DIR = Path(RUNNING_DIR + '/Images/Base') # dir where images are located
 EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'] # allowed image extensions for processing
 FORCE_CREATE_DIRS = True # we dont ask user if they want directories created
 DELETE_DIRS_AFTER_FINISH = True # deletes temporary directories (OPTIMALIZED_IMGS_DIR_BASE, UPSCALED_IMGS_DIR, DUPLICATES_DIR if it's empty)
@@ -19,16 +25,16 @@ ALLOW_DELETING = True # will ask if you want to delete duplicates
 ALLOW_DUPLICATES = True # will ask if you want to copy duplicates (only variations, not 1:1) to DUPLICATES_DIR for manual sorting
 Image.MAX_IMAGE_PIXELS = 1000000000 # max size of image in pixels (set low only in case that you process some random uploads as it's to prevent decompression bomb DOS attack)
 IMAGE_SIMILIARITY = "low" # low, normal, high or any int, which will be used as MSE threshold for comparison
-DUPLICATES_DIR = Path('D:\\HenPy\\Images\\Duplicates') # dir where duplicates will be stored for manual sorting
+DUPLICATES_DIR = Path(RUNNING_DIR + '/Images/Duplicates') # dir where duplicates will be stored for manual sorting
 
 # Image optimalitazion
-OPTIMALIZED_IMGS_DIR_BASE = Path('D:\\HenPy\\Images\\OptimalizedBase') # dir where base optimalized images should be stored
-OPTIMALIZED_IMGS_DIR_UPSCALED = Path('D:\\HenPy\\Images\\BaseUpscaledOptimalized') # dir where base optimalized images should be stored
+OPTIMALIZED_IMGS_DIR_BASE = Path(RUNNING_DIR + '/Images/OptimalizedBase') # dir where base optimalized images should be stored
+OPTIMALIZED_IMGS_DIR_UPSCALED = Path(RUNNING_DIR + '/Images/BaseUpscaledOptimalized') # dir where base optimalized images should be stored
 OPTIMALIZATION_QUALITY = 70 # sets quality of image (worst, lower size 0 - 100 best, bigger size)
 
 # Image upscaling
-REALSRGAN_PATH = Path('D:\\HenPy\\Real-ESRGAN\\realesrgan-ncnn-vulkan.exe') # path to executable that will do the upscaling
-UPSCALED_IMGS_DIR = Path('D:\\HenPy\\Images\\Upscaled') # dir where upscaled images will be stored
+REALSRGAN_PATH = Path(RUNNING_DIR + '/Real-ESRGAN/realesrgan-ncnn-vulkan.exe') # path to executable that will do the upscaling
+UPSCALED_IMGS_DIR = Path(RUNNING_DIR + '/Images/Upscaled') # dir where upscaled images will be stored
 UPSCALING_MODEL = "realesrgan-x4plus-anime" # model to be used when upscaling
 UPSCALE_SIZE = 4 # upscaled image will be X times the size of original
 UPSCALE_USE_GPU_ID = 0 # id of GPU to be used
@@ -36,11 +42,6 @@ UPSCALE_OUTPUT_FORMAT = "jpg" # output format of uspcaled image
 UPSCALE_CMD_TEMPLATE = '"{}" -i "{}" -o "{}" -n {} -s {} -g {} -f {}' # template command with params for the upscaller
 UPSCALE_SKIP_MIN_MIL_PIXELS = 10 # how many milions of pixels muset be in image so that we skip it's upscaling, try to experiment with this value to see what's best for your image set (low - faster upscaling, high - best quality)
 # Settings -------------------------------------------------------
-
-# Declarations for global variables ------------------------------
-IMAGES = []
-watch_start = datetime.now()
-# Declarations for global variables ------------------------------
 
 def clear():
     os.system('cls')

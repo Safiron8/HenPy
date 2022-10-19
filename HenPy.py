@@ -1,4 +1,4 @@
-import sys, os, time, shutil, mozjpeg_lossless_optimization, statistics
+import sys, os, time, shutil, mozjpeg_lossless_optimization, statistics, cv2, numpy
 from subprocess import DEVNULL, STDOUT, check_call
 from datetime import datetime
 from shutil import rmtree, move
@@ -14,11 +14,11 @@ RUNNING_DIR = str(Path(__file__).parent.resolve())
 # Declarations ---------------------------------------------------
 
 # Settings -------------------------------------------------------
-DEBUG = True # whether you should see more info than you would normally need
+DEBUG = False # whether you should see more info than you would normally need
 BASE_DIR = Path(RUNNING_DIR + '/Images/Base') # dir where images are located
 EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'] # allowed image extensions for processing
 FORCE_CREATE_DIRS = True # we dont ask user if they want directories created
-DELETE_DIRS_AFTER_FINISH = True # deletes temporary directories (OPTIMALIZED_IMGS_DIR_BASE, UPSCALED_IMGS_DIR, DUPLICATES_DIR if it's empty)
+DELETE_DIRS_AFTER_EXIT = True # deletes temporary directories (OPTIMALIZED_IMGS_DIR_BASE, UPSCALED_IMGS_DIR, DUPLICATES_DIR if it's empty)
 
 # Image duplicity handling
 ALLOW_DELETING = True # will ask if you want to delete duplicates
@@ -31,6 +31,9 @@ DUPLICATES_DIR = Path(RUNNING_DIR + '/Images/Duplicates') # dir where duplicates
 OPTIMALIZED_IMGS_DIR_BASE = Path(RUNNING_DIR + '/Images/OptimalizedBase') # dir where base optimalized images should be stored
 OPTIMALIZED_IMGS_DIR_UPSCALED = Path(RUNNING_DIR + '/Images/BaseUpscaledOptimalized') # dir where base optimalized images should be stored
 OPTIMALIZATION_QUALITY = 70 # sets quality of image (worst, lower size 0 - 100 best, bigger size)
+OPTIMALIZATION_TRANSPARENCY_REPLACE = True # replace transparency in images
+OPTIMALIZATION_TRANSPARENCY_REPLACE_COLOR = (255, 255, 255) # RGB
+OPTIMALIZATION_TRANSPARENCY_REPLACE_USE_AVERAGE = True # if true then transparent color will be average color
 
 # Image upscaling
 REALSRGAN_PATH = Path(RUNNING_DIR + '/Real-ESRGAN/realesrgan-ncnn-vulkan.exe') # path to executable that will do the upscaling
@@ -65,7 +68,14 @@ def start_watch():
     watch_start = datetime.now()
 
 def end_watch(action):
-    print("{} took {} seconds".format(action, round((datetime.now()-watch_start).total_seconds(), 2)))
+    print("{} took {} seconds".format(action, round((datetime.now()-watch_start).total_seconds(), 3)))
+
+def inputFromChoices(message, choices):
+    while True:
+        response = input(message).strip()
+
+        if response in choices:
+            return response
 
 def askYN(message):
     while True:
@@ -97,7 +107,8 @@ def check_directory(DIR, DIR_NAME, ERR_IF_NOT_EXISTS):
                     sys.exit("Stopping execution as directory is needed.")
 
 def init():
-    debug("0.1 Check directories")
+    debug("\nInit\n")
+    debug("Check directories")
 
     check_directory(BASE_DIR, "BASE_DIR", True)
     check_directory(OPTIMALIZED_IMGS_DIR_BASE, "OPTIMALIZED_IMGS_DIR_BASE", False)
@@ -113,10 +124,10 @@ def init():
     if not REALSRGAN_PATH.exists():
         sys.exit("REALSRGAN was not found on this path.")
 
-    debug("\n0.2 Check settings")
+    debug("\nCheck settings")
     debug("EXTENSIONS: {}".format(EXTENSIONS))
     debug("FORCE_CREATE_DIRS: {}".format(FORCE_CREATE_DIRS))
-    debug("DELETE_DIRS_AFTER_FINISH: {}".format(DELETE_DIRS_AFTER_FINISH))
+    debug("DELETE_DIRS_AFTER_EXIT: {}".format(DELETE_DIRS_AFTER_EXIT))
     debug("ALLOW_DELETING: {}".format(ALLOW_DELETING))
     debug("ALLOW_DUPLICATES: {}".format(ALLOW_DUPLICATES))
     debug("IMAGE_SIMILIARITY: {}".format(IMAGE_SIMILIARITY))
@@ -196,22 +207,46 @@ def delete_images(images):
 
     print("Deleted {} images".format(deleted))
 
-def convert_to_optimized_jpeg(input_path, output_path):
-    jpeg_io = BytesIO()
+def convert_to_optimized_image(input_path, output_path):
+    img_bytes = BytesIO()
+    has_transparency = False
 
     with Image.open(input_path, "r") as image:
-        image.convert("RGB").save(jpeg_io, format="JPEG", quality=OPTIMALIZATION_QUALITY)
+        if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+            if OPTIMALIZATION_TRANSPARENCY_REPLACE:
+                if OPTIMALIZATION_TRANSPARENCY_REPLACE_USE_AVERAGE:
+                    avg_color = numpy.average(numpy.average(cv2.imread(str(input_path)), axis=0), axis=0)
+                    image = remove_transparency(image, (int(avg_color[0]), int(avg_color[1]), int(avg_color[2])))
+                else:
+                    image = remove_transparency(image, OPTIMALIZATION_TRANSPARENCY_REPLACE_COLOR)
 
-    jpeg_io.seek(0)
-    jpeg_bytes = jpeg_io.read()
+                image.convert("RGB").save(img_bytes, format="JPEG", quality=OPTIMALIZATION_QUALITY)
+            else:
+                has_transparency = True
+                image.convert("RGBA").save(img_bytes, format="PNG", quality=OPTIMALIZATION_QUALITY)
+        else:
+            image.convert("RGB").save(img_bytes, format="JPEG", quality=OPTIMALIZATION_QUALITY)
 
-    optimized_jpeg_bytes = mozjpeg_lossless_optimization.optimize(jpeg_bytes)
+    img_bytes.seek(0)
+
+    if not has_transparency:
+        img_bytes = mozjpeg_lossless_optimization.optimize(img_bytes.read())
 
     with open(output_path, "wb") as output_file:
-        output_file.write(optimized_jpeg_bytes)
+        if has_transparency:
+            output_file.write(img_bytes.read())
+        else:
+            output_file.write(img_bytes)
+
+# https://stackoverflow.com/questions/35859140/remove-transparency-alpha-from-any-image-using-pil
+def remove_transparency(im, replacing_color):
+    alpha = im.convert('RGBA').split()[-1]
+    bg = Image.new("RGBA", im.size, replacing_color + (255,))
+    bg.paste(im, mask=alpha)
+    return bg
 
 def optimalize_images(DIR):
-    print("Optimalizing images to jpg with {}% quality and saving them to {}".format(OPTIMALIZATION_QUALITY, DIR))
+    print("Optimalizing images with {}% quality and saving them to {}".format(OPTIMALIZATION_QUALITY, DIR))
     start_watch()
 
     images_len = len(IMAGES)
@@ -221,15 +256,21 @@ def optimalize_images(DIR):
 
         print("Optimalizing images: [{}/{}] [{}%]".format(i+1, images_len, round(((i+1)/images_len * 100))), end="\r")
 
-        new_path = Path(DIR.joinpath(image.stem + ".jpg"))
+        if OPTIMALIZATION_TRANSPARENCY_REPLACE:
+            new_path = Path(DIR.joinpath(image.stem + ".jpg"))
+        else:
+            file_name = os.path.basename(image)
+            index_of_dot = file_name.index('.')
+            file_name_without_extension = file_name[:index_of_dot]
+            new_path = Path(DIR.joinpath(file_name_without_extension)).with_suffix(image.suffix)
 
         if not new_path.exists():
-            convert_to_optimized_jpeg(image, new_path)
+            convert_to_optimized_image(image, new_path)
 
     print("Optimalizing images: [{}/{}] [100%]".format(images_len, images_len))
     end_watch("Optimalizing")
 
-def upscale_images(INPUT_DIR, OUTPUT_DIR):
+def start_upscalling(INPUT_DIR, OUTPUT_DIR):
     debug("Determining which images have enough quality to not be upscaled")
 
     already_upscaled_imgs = []
@@ -283,9 +324,56 @@ def is_dir_empty(DIR):
     except FileNotFoundError:
         return False
 
-def cleanup():
-    if DELETE_DIRS_AFTER_FINISH:
-        print("\n8. Cleanup\n") # if there are more steps, the number should change
+def menu():
+    print("\n1. Full cycle [2-6]")
+    print("2. Optimalize base images")
+    print("3. Duplicate detection")
+    print("4. Upscale images")
+    print("5. Optimalize upscaled images")
+    print("6. Exit")
+
+    selected = inputFromChoices("\nSelect from menu: ", ["1", "2", "3", "4", "5", "6"])
+
+    if selected == "1": full_cycle()
+    if selected == "2": optimalize_base_images()
+    if selected == "3": find_duplicates()
+    if selected == "4": upscale_images()
+    if selected == "5": optimalize_upscaled_images()
+    if selected == "6": exit()
+
+    menu()
+
+def full_cycle():
+    optimalize_base_images()
+    find_duplicates()
+    upscale_images()
+    optimalize_upscaled_images()
+
+def optimalize_base_images():
+    print("\nIndexing base images\n")
+    index_images(BASE_DIR)
+    print("\nOptimalize images\n")
+    optimalize_images(OPTIMALIZED_IMGS_DIR_BASE)
+
+def find_duplicates():
+    print("\nDetecting duplicates\n")
+    find_duplicate_images(OPTIMALIZED_IMGS_DIR_BASE)
+
+def upscale_images():
+    print("\nIndexing optimalized images\n")
+    index_images(OPTIMALIZED_IMGS_DIR_BASE)
+    print("\nUpscaling images\n")
+    start_upscalling(OPTIMALIZED_IMGS_DIR_BASE, UPSCALED_IMGS_DIR)
+
+def optimalize_upscaled_images():
+    print("\nIndexing upscaled images\n")
+    index_images(UPSCALED_IMGS_DIR)
+    print("\nOptimalizing upscaled images\n")
+    optimalize_images(OPTIMALIZED_IMGS_DIR_UPSCALED)
+
+def exit():
+    if DELETE_DIRS_AFTER_EXIT:
+        print("\nCleanup\n")
 
         print("Deleting temporary directory {}".format(OPTIMALIZED_IMGS_DIR_BASE))
         rmtree(OPTIMALIZED_IMGS_DIR_BASE)
@@ -297,23 +385,14 @@ def cleanup():
             print("Deleting directory with duplicates as it's empty {}".format(DUPLICATES_DIR))
             rmtree(DUPLICATES_DIR)
 
+        if is_dir_empty(OPTIMALIZED_IMGS_DIR_UPSCALED):
+            print("Deleting directory with optimized upscales as it's empty {}".format(OPTIMALIZED_IMGS_DIR_UPSCALED))
+            rmtree(OPTIMALIZED_IMGS_DIR_UPSCALED)
+
+    sys.exit()
+
 if __name__ == "__main__":
     clear()
     logo()
-    debug("\n0. Init\n")
     init()
-    print("\n1. Index base images\n")
-    index_images(BASE_DIR)
-    print("\n2. Optimalize images\n")
-    optimalize_images(OPTIMALIZED_IMGS_DIR_BASE)
-    print("\n3. Find duplicates\n")
-    find_duplicate_images(OPTIMALIZED_IMGS_DIR_BASE)
-    print("\n4. Index optimalized images\n")
-    index_images(OPTIMALIZED_IMGS_DIR_BASE)
-    print("\n5. Upscale optimalized images\n")
-    upscale_images(OPTIMALIZED_IMGS_DIR_BASE, UPSCALED_IMGS_DIR)
-    print("\n6. Index upscaled images\n")
-    index_images(UPSCALED_IMGS_DIR)
-    print("\n7. Optimalize upscaled images\n")
-    optimalize_images(OPTIMALIZED_IMGS_DIR_UPSCALED)
-    cleanup()
+    menu()

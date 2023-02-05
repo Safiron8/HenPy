@@ -16,6 +16,7 @@ RUNNING_DIR = str(Path(__file__).parent.resolve())
 # Settings -------------------------------------------------------
 DEBUG = False # whether you should see more info than you would normally need
 BASE_DIR = Path(RUNNING_DIR + '/Images/Base') # dir where images are located
+USE_RECURSION = True # will scan images located inside sub-folders recursively
 EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'] # allowed image extensions for processing
 FORCE_CREATE_DIRS = True # we dont ask user if they want directories created
 DELETE_DIRS_AFTER_EXIT = True # deletes temporary directories (OPTIMALIZED_IMGS_DIR_BASE, UPSCALED_IMGS_DIR, DUPLICATES_DIR if it's empty)
@@ -147,9 +148,11 @@ def index_images(DIR):
 
     for path in DIR.glob(r'**/*'):
         if path.exists():
-            if path.suffix.lower() in EXTENSIONS:
-                if path.is_file():
-                    IMAGES.append(path)
+    search_pattern = r'**/*' if USE_RECURSION else r'*'
+
+    for path in DIR.glob(search_pattern):
+        if path.exists() and path.is_file() and path.suffix.lower() in EXTENSIONS:
+            IMAGES.append(path)
 
     print("Indexed {} images".format(len(IMAGES)))
     end_watch("Indexing")

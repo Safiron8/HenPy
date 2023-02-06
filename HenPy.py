@@ -146,8 +146,6 @@ def index_images(DIR):
     print("Indexing [{}] images in {}".format('|'.join(EXTENSIONS), str(DIR)))
     start_watch()
 
-    for path in DIR.glob(r'**/*'):
-        if path.exists():
     search_pattern = r'**/*' if USE_RECURSION else r'*'
 
     for path in DIR.glob(search_pattern):
@@ -328,15 +326,17 @@ def is_dir_empty(DIR):
         return False
 
 def menu():
-    print("\n1. Full cycle [2-6]")
+    print("\n0. Change directory ({})".format(BASE_DIR))
+    print("1. Full cycle [2-6]")
     print("2. Optimalize base images")
     print("3. Duplicate detection")
     print("4. Upscale images")
     print("5. Optimalize upscaled images")
     print("6. Exit")
 
-    selected = inputFromChoices("\nSelect from menu: ", ["1", "2", "3", "4", "5", "6"])
+    selected = inputFromChoices("\nSelect from menu: ", ["0", "1", "2", "3", "4", "5", "6"])
 
+    if selected == "0": change_base_dir()
     if selected == "1": full_cycle()
     if selected == "2": optimalize_base_images()
     if selected == "3": find_duplicates()
@@ -345,6 +345,19 @@ def menu():
     if selected == "6": exit()
 
     menu()
+
+def change_base_dir():
+    global BASE_DIR
+
+    new_base_dir = Path(input("New directory: "))
+
+    if new_base_dir.exists():
+        if new_base_dir.is_dir():
+            BASE_DIR = new_base_dir
+            return
+
+    print("Invalid directory")
+    change_base_dir()
 
 def full_cycle():
     optimalize_base_images()
